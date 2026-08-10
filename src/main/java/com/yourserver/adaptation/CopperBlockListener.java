@@ -4,6 +4,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.Sound;
 import org.bukkit.block.Block;
+import org.bukkit.block.BlockFace;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -23,8 +24,8 @@ import java.util.HashMap;
 public class CopperBlockListener implements Listener {
 
     private final JavaPlugin plugin;
-    // Временное хранилище содержимого инвентаря для каждого блока по его уникальной локации
     private final HashMap<String, ItemStack[]> blockInventories = new HashMap<>();
+    private static final BlockFace[] FACES = {BlockFace.NORTH, BlockFace.SOUTH, BlockFace.EAST, BlockFace.WEST, BlockFace.UP, BlockFace.DOWN};
 
     public CopperBlockListener(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -53,29 +54,17 @@ public class CopperBlockListener implements Listener {
         if (blockInventories.containsKey(key)) {
             gui.setContents(blockInventories.get(key));
         } else {
-            // Инициализация пустого меню с кнопками-подсказами (белое стекло — пустые слоты)
-            ItemStack emptySlot = new ItemStack(Material.WHITE_STAINED_GLASS_PANE);
-            ItemMeta meta = emptySlot.getItemMeta();
-            if (meta != null) { 
-                meta.setDisplayName("§7Пустой слот ноты/времени"); 
-                emptySlot.setItemMeta(meta); 
-            }
-
-            int[] noteSlots = {4, 5, 6, 7, 13, 14, 15, 16, 22, 23, 24, 25};
-            for (int slot : noteSlots) {
-                gui.setItem(slot, emptySlot);
-            }
-
-            // Отделяем крайний правый ряд черным стеклом, чтобы визуально отделить правое поле
+            // Изначально меню полностью пустое и чистое для игрока!
+            // Ставим только центральный вертикальный разделитель (4-й столбец, слоты 4, 13, 22)
             ItemStack separator = new ItemStack(Material.BLACK_STAINED_GLASS_PANE);
             ItemMeta sMeta = separator.getItemMeta();
             if (sMeta != null) { 
-                sMeta.setDisplayName(" "); 
+                sMeta.setDisplayName("§7Разделитель: Лево-Время | Право-Ноты"); 
                 separator.setItemMeta(sMeta); 
             }
-            gui.setItem(8, separator);
-            gui.setItem(17, separator);
-            gui.setItem(26, separator);
+            gui.setItem(4, separator);
+            gui.setItem(13, separator);
+            gui.setItem(22, separator);
         }
 
         player.openInventory(gui);
@@ -87,13 +76,13 @@ public class CopperBlockListener implements Listener {
             CopperHolder holder = (CopperHolder) event.getInventory().getHolder();
             int slot = event.getRawSlot();
 
-            // Запрещаем кликать по черным стеклам разделителя
-            if (slot == 8 || slot == 17 || slot == 26) {
+            // Запрещаем игроку забирать или ломать центральную линию-разделитель
+            if (slot == 4 || slot == 13 || slot == 22) {
                 event.setCancelled(true);
                 return;
             }
 
-            // Автоматически сохраняем содержимое инвентаря блока сразу после клика игрока
+            // Мгновенно сохраняем любые предметы, которые игрок перетащил, положил или убрал
             Bukkit.getScheduler().runTask(plugin, () -> {
                 blockInventories.put(getBlockKey(holder.getBlock()), event.getInventory().getContents());
             });
@@ -102,80 +91,86 @@ public class CopperBlockListener implements Listener {
 
     @EventHandler
     public void onBlockRedstone(BlockRedstoneEvent event) {
-        Block block = event.getBlock();
-
-        if (block.getType() == Material.WAXED_CHISELED_COPPER) {
-            if (event.getNewCurrent() > 0 && event.getOldCurrent() == 0) {
-                
-                long currentTime = System.currentTimeMillis();
-                long lastUsed = 0;
-
-                if (block.hasMetadata("last_copper_trigger")) {
-                    lastUsed = block.getMetadata("last_copper_trigger").get(0).asLong();
+        Block wireBlock = event.getBlock();
+        
+        for (BlockFace face : FACES) {
+            Block targetBlock = wireBlock.getRelative(face);
+            
+            if (targetBlock.getType() == Material.WAXED_CHISELED_COPPER) {
+                if (event.getNewCurrent() > 0 && event.getOldCurrent() == 0) {
+                    triggerCopperBlock(targetBlock);
                 }
-
-                // Кулдаун 0.4 секунды (400 мс)
-                if (currentTime - lastUsed < 400) {
-                    event.setNewCurrent(0); 
-                    return;
-                }
-
-                block.setMetadata("last_copper_trigger", new FixedMetadataValue(plugin, currentTime));
-
-                String key = getBlockKey(block);
-                if (!blockInventories.containsKey(key)) return;
-
-                ItemStack[] items = blockInventories.get(key);
-
-                // Высчитываем задержку по количеству предметов в левой части
-                int delayTicks = 10; 
-                int leftItemsCount = 0;
-                int[] leftSlots = {0,1,2,3,9,10,11,12,18,19,20,21};
-                for (int slot : leftSlots) {
-                    if (items[slot] != null && items[slot].getType() != Material.AIR) {
-                        leftItemsCount += items[slot].getAmount();
-                    }
-                }
-                if (leftItemsCount > 0) {
-                    delayTicks = Math.min(leftItemsCount * 2, 40); 
-                }
-
-                // Запуск проигрывания 4-х столбцов СЛЕВА НАПРАВО
-                final int finalDelay = delayTicks;
-                new BukkitRunnable() {
-                    int step = 0; 
-
-                    @Override
-                    public void run() {
-                        if (step >= 4) {
-                            this.cancel();
-                            return;
-                        }
-
-                        int highSlot = 4 + step;
-                        int midSlot = 13 + step;
-                        int lowSlot = 22 + step;
-
-                        // Если в слоте лежит ЛЮБОЙ предмет, кроме воздуха и белого стекла — играем ноту
-                        if (isNoteItem(items[highSlot])) {
-                            block.getWorld().playSound(block.getLocation(), Sound.BLOCK_NOTE_BLOCK_HARP, 1.5f, 1.6f);
-                        }
-                        else if (isNoteItem(items[midSlot])) {
-                            block.getWorld().playSound(block.getLocation(), Sound.BLOCK_NOTE_BLOCK_HARP, 1.0f, 1.0f);
-                        }
-                        else if (isNoteItem(items[lowSlot])) {
-                            block.getWorld().playSound(block.getLocation(), Sound.BLOCK_NOTE_BLOCK_HARP, 0.7f, 0.5f);
-                        }
-
-                        step++;
-                    }
-                }.runTaskTimer(plugin, 0L, finalDelay);
             }
         }
     }
 
-    private boolean isNoteItem(ItemStack item) {
-        return item != null && item.getType() != Material.AIR && item.getType() != Material.WHITE_STAINED_GLASS_PANE;
+    private void triggerCopperBlock(Block block) {
+        long currentTime = System.currentTimeMillis();
+        long lastUsed = 0;
+
+        if (block.hasMetadata("last_copper_trigger")) {
+            lastUsed = block.getMetadata("last_copper_trigger").get(0).asLong();
+        }
+
+        if (currentTime - lastUsed < 400) {
+            return;
+        }
+
+        block.setMetadata("last_copper_trigger", new FixedMetadataValue(plugin, currentTime));
+
+        String key = getBlockKey(block);
+        if (!blockInventories.containsKey(key)) return;
+
+        ItemStack[] items = blockInventories.get(key);
+
+        // 1. Считаем задержку по предметам в ЛЕВОЙ части (слот 0..3, 9..12, 18..21)
+        int leftItemsCount = 0;
+        int[] leftSlots = {0,1,2,3, 9,10,11,12, 18,19,20,21};
+        for (int slot : leftSlots) {
+            if (items[slot] != null && items[slot].getType() != Material.AIR) {
+                leftItemsCount += items[slot].getAmount();
+            }
+        }
+        
+        // Каждые 2 предмета слева увеличивают паузу на 1 тик (0.05 сек). Базово — 4 тика.
+        int delayTicks = 4 + (leftItemsCount / 2);
+        delayTicks = Math.clamp(delayTicks, 2, 40);
+
+        // 2. Воспроизведение нот в ПРАВОЙ части (4 столбца читаются слева направо)
+        // Столбец 1: слоты 5, 14, 23 | Столбец 2: слоты 6, 15, 24
+        // Столбец 3: слоты 7, 16, 25 | Столбец 4: слоты 8, 17, 26
+        final int finalDelay = delayTicks;
+        new BukkitRunnable() {
+            int step = 0; // Шаг от 0 до 3 (наши 4 столбца)
+
+            @Override
+            public void run() {
+                if (step >= 4) {
+                    this.cancel();
+                    return;
+                }
+
+                // Высчитываем точные слоты для текущего шага-столбца в правой части
+                int highSlot = 5 + step;
+                int midSlot = 14 + step;
+                int lowSlot = 23 + step;
+
+                // Проверяем 1 ряд (Высокий звук) — если игрок положил туда вещь
+                if (items[highSlot] != null && items[highSlot].getType() != Material.AIR) {
+                    block.getWorld().playSound(block.getLocation(), Sound.BLOCK_NOTE_BLOCK_HARP, 1.5f, 1.6f);
+                } 
+                // Проверяем 2 ряд (Средний звук)
+                else if (items[midSlot] != null && items[midSlot].getType() != Material.AIR) {
+                    block.getWorld().playSound(block.getLocation(), Sound.BLOCK_NOTE_BLOCK_HARP, 1.0f, 1.0f);
+                } 
+                // Проверяем 3 ряд (Низкий звук)
+                else if (items[lowSlot] != null && items[lowSlot].getType() != Material.AIR) {
+                    block.getWorld().playSound(block.getLocation(), Sound.BLOCK_NOTE_BLOCK_HARP, 0.7f, 0.5f);
+                }
+
+                step++;
+            }
+        }.runTaskTimer(plugin, 0L, finalDelay);
     }
 
     private static class CopperHolder implements org.bukkit.inventory.InventoryHolder {
