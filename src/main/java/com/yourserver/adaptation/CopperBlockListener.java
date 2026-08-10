@@ -2,7 +2,6 @@ package com.yourserver.adaptation;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
-import org.bukkit.NamespacedKey;
 import org.bukkit.Sound;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
@@ -26,13 +25,12 @@ public class CopperBlockListener implements Listener {
         this.plugin = plugin;
     }
 
-    // 1. Открытие GUI по клику ПКМ на Медный блок (взяли за основу Вощёный резной медный блок)
+    // 1. Открытие GUI по клику ПКМ на Медный блок
     @EventHandler
     public void onBlockInteract(PlayerInteractEvent event) {
         if (event.getAction() == Action.RIGHT_CLICK_BLOCK && event.getClickedBlock() != null) {
             Block block = event.getClickedBlock();
             
-            // Проверяем, что это медный блок (можно заменить на любой другой тип меди)
             if (block.getType() == Material.WAXED_CHISELED_COPPER) { 
                 event.setCancelled(true);
                 openCopperMenu(event.getPlayer());
@@ -40,7 +38,6 @@ public class CopperBlockListener implements Listener {
         }
     }
 
-    // Кастомное меню без ресурспака на кнопках-панелях
     private void openCopperMenu(Player player) {
         Inventory gui = Bukkit.createInventory(null, 9, "§6Настройка медного блока");
 
@@ -65,31 +62,29 @@ public class CopperBlockListener implements Listener {
         player.openInventory(gui);
     }
 
-    // 2. Обработка редстоуна и кулдауна 0.4 секунды (400 мс)
+    // 2. Исправленная обработка редстоуна и кулдауна 0.4 секунды
     @EventHandler
     public void onBlockRedstone(BlockRedstoneEvent event) {
         Block block = event.getBlock();
 
         if (block.getType() == Material.WAXED_CHISELED_COPPER) {
-            if (event.getNewPower() > 0 && event.getOldPower() == 0) {
+            // Используем правильные методы Paper API: getNewCurrent() и getOldCurrent()
+            if (event.getNewCurrent() > 0 && event.getOldCurrent() == 0) {
                 
                 long currentTime = System.currentTimeMillis();
                 long lastUsed = 0;
 
-                // Защита от спама и лаг-машин через метаданные блока
                 if (block.hasMetadata("last_copper_trigger")) {
                     lastUsed = block.getMetadata("last_copper_trigger").get(0).asLong();
                 }
 
                 if (currentTime - lastUsed < 400) {
-                    event.setNewPower(0); // Отменяем сигнал, если прошло меньше 0.4 сек
+                    event.setNewCurrent(0); // Используем setNewCurrent вместо setNewPower
                     return;
                 }
 
-                // Записываем новое время срабатывания
                 block.setMetadata("last_copper_trigger", new FixedMetadataValue(plugin, currentTime));
 
-                // Воспроизведение 4 нот по очереди раз в секунду (20 тиков)
                 new BukkitRunnable() {
                     int step = 0;
                     @Override
@@ -98,7 +93,6 @@ public class CopperBlockListener implements Listener {
                             this.cancel();
                             return;
                         }
-                        // Массив питчей (тональностей) для нот
                         float[] pitches = {0.6f, 0.8f, 1.0f, 1.4f}; 
                         block.getWorld().playSound(block.getLocation(), Sound.BLOCK_NOTE_BLOCK_HARP, 1.0f, pitches[step]);
                         step++;
