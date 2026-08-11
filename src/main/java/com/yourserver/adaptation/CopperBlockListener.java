@@ -110,7 +110,7 @@ public class CopperBlockListener implements Listener {
             });
         }
     }
-       @EventHandler
+        @EventHandler
     public void onBlockBreak(BlockBreakEvent event) {
         Block block = event.getBlock();
         if (block.getType() == Material.WAXED_CHISELED_COPPER) {
@@ -171,9 +171,8 @@ public class CopperBlockListener implements Listener {
         }
 
         int itemsInTimeSlot = 0;
-        ItemStack timeItem = items[10]; // Точное и исправленное чтение слота задержки №10
-        if (timeItem != null && timeItem.getType() != Material.AIR) {
-            itemsInTimeSlot = timeItem.getAmount();
+        if (items[10] != null && items[10].getType() != Material.AIR) {
+            itemsInTimeSlot = items[10].getAmount();
         }
 
         int delayTicks = (itemsInTimeSlot > 0) ? (itemsInTimeSlot * 2) : 4;
@@ -181,6 +180,10 @@ public class CopperBlockListener implements Listener {
 
         final int finalDelay = delayTicks;
         final ItemStack[] finalItems = items;
+        
+        // Локация для появления частиц (чуть выше центра верхней грани блока)
+        org.bukkit.Location particleLoc = block.getLocation().clone().add(0.5, 1.2, 0.5);
+
         new BukkitRunnable() {
             int step = 0;
 
@@ -192,27 +195,38 @@ public class CopperBlockListener implements Listener {
                     return;
                 }
 
-                int highSlot = 4 + step;       // 1 ряд в меню (Верхний) -> 12 кликов
-                int midSlot = 13 + step;      // 2 ряд в меню -> 08 кликов
-                int lowSlot = 22 + step;      // 3 ряд в меню -> 04 клика
-                int subSlot = 31 + step;      // 4 ряд в меню (Нижний) -> 00 кликов
+                int highSlot = 4 + step;       
+                int midSlot = 13 + step;      
+                int lowSlot = 22 + step;      
+                int subSlot = 31 + step;      
 
-                // Воспроизведение аккордов под твои точные настройки Redstone Tweaks
+                // Переменная для проверки, прозвучал ли аккорд на этом шаге
+                boolean playedAny = false;
+
                 if (finalItems[highSlot] != null && finalItems[highSlot].getType() != Material.AIR) {
                     Sound sound = getInstrumentByMaterial(finalItems[highSlot].getType());
                     block.getWorld().playSound(block.getLocation(), sound, 1.2f, 1.0f); // 12 кликов
+                    playedAny = true;
                 } 
                 if (finalItems[midSlot] != null && finalItems[midSlot].getType() != Material.AIR) {
                     Sound sound = getInstrumentByMaterial(finalItems[midSlot].getType());
                     block.getWorld().playSound(block.getLocation(), sound, 1.0f, 0.79f); // 08 кликов
+                    playedAny = true;
                 } 
                 if (finalItems[lowSlot] != null && finalItems[lowSlot].getType() != Material.AIR) {
                     Sound sound = getInstrumentByMaterial(finalItems[lowSlot].getType());
                     block.getWorld().playSound(block.getLocation(), sound, 0.8f, 0.63f); // 04 клика
+                    playedAny = true;
                 }
                 if (finalItems[subSlot] != null && finalItems[subSlot].getType() != Material.AIR) {
                     Sound sound = getInstrumentByMaterial(finalItems[subSlot].getType());
                     block.getWorld().playSound(block.getLocation(), sound, 0.9f, 0.5f); // 00 кликов
+                    playedAny = true;
+                }
+
+                // Если сыграла хотя бы одна нота из столбца — спавним красивую ванильную нотку
+                if (playedAny) {
+                    block.getWorld().spawnParticle(org.bukkit.Particle.NOTE, particleLoc, 1, 0.0, 0.0, 0.0, 0.0);
                 }
 
                 step++;
