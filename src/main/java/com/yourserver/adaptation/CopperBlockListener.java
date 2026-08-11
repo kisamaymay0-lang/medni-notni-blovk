@@ -110,7 +110,7 @@ public class CopperBlockListener implements Listener {
             });
         }
     }
-    @EventHandler
+       @EventHandler
     public void onBlockBreak(BlockBreakEvent event) {
         Block block = event.getBlock();
         if (block.getType() == Material.WAXED_CHISELED_COPPER) {
@@ -171,7 +171,7 @@ public class CopperBlockListener implements Listener {
         }
 
         int itemsInTimeSlot = 0;
-        ItemStack timeItem = items[10]; // Точное чтение слота задержки №10
+        ItemStack timeItem = items[10]; // Точное и исправленное чтение слота задержки №10
         if (timeItem != null && timeItem.getType() != Material.AIR) {
             itemsInTimeSlot = timeItem.getAmount();
         }
@@ -192,26 +192,27 @@ public class CopperBlockListener implements Listener {
                     return;
                 }
 
-                int highSlot = 4 + step;       
-                int midSlot = 13 + step;      
-                int lowSlot = 22 + step;      
-                int subSlot = 31 + step;      
+                int highSlot = 4 + step;       // 1 ряд в меню (Верхний) -> 12 кликов
+                int midSlot = 13 + step;      // 2 ряд в меню -> 08 кликов
+                int lowSlot = 22 + step;      // 3 ряд в меню -> 04 клика
+                int subSlot = 31 + step;      // 4 ряд в меню (Нижний) -> 00 кликов
 
+                // Воспроизведение аккордов под твои точные настройки Redstone Tweaks
                 if (finalItems[highSlot] != null && finalItems[highSlot].getType() != Material.AIR) {
                     Sound sound = getInstrumentByMaterial(finalItems[highSlot].getType());
-                    block.getWorld().playSound(block.getLocation(), sound, 1.2f, 1.3f);
+                    block.getWorld().playSound(block.getLocation(), sound, 1.2f, 1.0f); // 12 кликов
                 } 
                 if (finalItems[midSlot] != null && finalItems[midSlot].getType() != Material.AIR) {
                     Sound sound = getInstrumentByMaterial(finalItems[midSlot].getType());
-                    block.getWorld().playSound(block.getLocation(), sound, 1.0f, 1.0f);
+                    block.getWorld().playSound(block.getLocation(), sound, 1.0f, 0.79f); // 08 кликов
                 } 
                 if (finalItems[lowSlot] != null && finalItems[lowSlot].getType() != Material.AIR) {
                     Sound sound = getInstrumentByMaterial(finalItems[lowSlot].getType());
-                    block.getWorld().playSound(block.getLocation(), sound, 0.8f, 0.6f);
+                    block.getWorld().playSound(block.getLocation(), sound, 0.8f, 0.63f); // 04 клика
                 }
                 if (finalItems[subSlot] != null && finalItems[subSlot].getType() != Material.AIR) {
                     Sound sound = getInstrumentByMaterial(finalItems[subSlot].getType());
-                    block.getWorld().playSound(block.getLocation(), sound, 0.9f, 0.4f);
+                    block.getWorld().playSound(block.getLocation(), sound, 0.9f, 0.5f); // 00 кликов
                 }
 
                 step++;
