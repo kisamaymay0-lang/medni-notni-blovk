@@ -62,7 +62,8 @@ public class CopperBlockListener implements Listener {
     }
 
     private void openCopperMenu(Player player, Block block) {
-        Inventory gui = Bukkit.createInventory(new CopperHolder(block), 27, "§6Настройка Медного нотного блока");
+        // Установлено точное название меню без лишних слов
+        Inventory gui = Bukkit.createInventory(new CopperHolder(block), 27, "§6Медный нотный блок");
         String key = getBlockKey(block);
 
         if (blockInventories.containsKey(key)) {
@@ -116,9 +117,8 @@ public class CopperBlockListener implements Listener {
     }
 
     private void triggerCopperBlock(Block block) {
-        // Проверка: играет ли музыка прямо сейчас?
         if (block.hasMetadata("copper_playing")) {
-            return; // Игнорируем редстоун, пока старый трек не доиграет до конца
+            return; 
         }
 
         long currentTime = System.currentTimeMillis();
@@ -133,23 +133,20 @@ public class CopperBlockListener implements Listener {
         }
 
         block.setMetadata("last_copper_trigger", new FixedMetadataValue(plugin, currentTime));
-        
-        // Ставим блокировку: музыка пошла
         block.setMetadata("copper_playing", new FixedMetadataValue(plugin, true));
 
         String key = getBlockKey(block);
         if (!blockInventories.containsKey(key)) {
-            // Если инвентарь пуст, сразу снимаем блокировку и выходим
             block.removeMetadata("copper_playing", plugin);
             return;
         }
 
         ItemStack[] items = blockInventories.get(key);
 
+        // Исправлено чтение количества предметов в слоте времени (слот 10)
         int itemsInTimeSlot = 0;
-        ItemStack timeItem = items[10];
-        if (timeItem != null && timeItem.getType() != Material.AIR) {
-            itemsInTimeSlot = timeItem.getAmount();
+        if (items[10] != null && items[10].getType() != Material.AIR) {
+            itemsInTimeSlot = items[10].getAmount();
         }
 
         int delayTicks = (itemsInTimeSlot > 0) ? (itemsInTimeSlot * 2) : 4;
@@ -162,7 +159,6 @@ public class CopperBlockListener implements Listener {
             @Override
             public void run() {
                 if (step >= 4) {
-                    // Снимаем блокировку, когда все 4 столбца успешно отыграли
                     block.removeMetadata("copper_playing", plugin);
                     this.cancel();
                     return;
@@ -172,19 +168,20 @@ public class CopperBlockListener implements Listener {
                 int midSlot = 13 + step;      
                 int lowSlot = 22 + step;      
 
+                // Воспроизведение с уменьшенным и сбалансированным разбросом питчей
                 if (items[highSlot] != null && items[highSlot].getType() != Material.AIR) {
                     Sound sound = getInstrumentByMaterial(items[highSlot].getType());
-                    block.getWorld().playSound(block.getLocation(), sound, 1.5f, 1.6f);
+                    block.getWorld().playSound(block.getLocation(), sound, 1.2f, 1.3f); // Верхний ряд: мягкий высокий (1.3)
                 } 
                 
                 if (items[midSlot] != null && items[midSlot].getType() != Material.AIR) {
                     Sound sound = getInstrumentByMaterial(items[midSlot].getType());
-                    block.getWorld().playSound(block.getLocation(), sound, 1.0f, 1.0f);
+                    block.getWorld().playSound(block.getLocation(), sound, 1.0f, 1.0f); // Средний ряд: эталонный (1.0)
                 } 
                 
                 if (items[lowSlot] != null && items[lowSlot].getType() != Material.AIR) {
                     Sound sound = getInstrumentByMaterial(items[lowSlot].getType());
-                    block.getWorld().playSound(block.getLocation(), sound, 0.7f, 0.5f);
+                    block.getWorld().playSound(block.getLocation(), sound, 0.8f, 0.6f); // Нижний ряд: приятный низкий (0.6)
                 }
 
                 step++;
