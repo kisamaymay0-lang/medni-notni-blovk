@@ -2,11 +2,11 @@ package com.yourserver.adaptation;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
-import org.bukkit.NamespacedKey;
 import org.bukkit.Sound;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
-import org.bukkit.block.TileState;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -18,17 +18,12 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.persistence.PersistentDataContainer;
-import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.metadata.FixedMetadataValue;
-import org.bukkit.util.io.BukkitObjectInputStream;
-import org.bukkit.util.io.BukkitObjectOutputStream;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.util.Base64;
+import java.io.File;
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
@@ -36,16 +31,24 @@ import java.util.Set;
 public class CopperBlockListener implements Listener {
 
     private final JavaPlugin plugin;
-    private final NamespacedKey dataKey;
+    private final File configFile;
+    private FileConfiguration blockData;
     private final HashMap<String, ItemStack[]> sessionInventories = new HashMap<>();
     private static final BlockFace[] FACES = {BlockFace.NORTH, BlockFace.SOUTH, BlockFace.EAST, BlockFace.WEST, BlockFace.UP, BlockFace.DOWN};
     private final Set<Integer> blockedSlots = new HashSet<>();
 
     public CopperBlockListener(JavaPlugin plugin) {
         this.plugin = plugin;
-        this.dataKey = new NamespacedKey(plugin, "copper_inventory_data");
         
-        // Забиваем заблокированные слоты для интерфейса из 4-х рядов (36 слотов)
+        // Создаем и настраиваем файл blocks.yml в папке плагина
+        this.configFile = new File(plugin.getDataFolder(), "blocks.yml");
+        if (!plugin.getDataFolder().exists()) {
+            plugin.getDataFolder().mkdirs();
+        }
+        this.blockData = YamlConfiguration.loadConfiguration(configFile);
+        loadAllBlocksFromFile(); // Загружаем все блоки в память при старте
+
+        // Конфигурация интерфейса (36 слотов)
         blockedSlots.add(0); blockedSlots.add(9); blockedSlots.add(18); blockedSlots.add(27);
         blockedSlots.add(1); blockedSlots.add(19); blockedSlots.add(28); 
         blockedSlots.add(2); blockedSlots.add(11); blockedSlots.add(20); blockedSlots.add(29);
@@ -69,24 +72,18 @@ public class CopperBlockListener implements Listener {
     }
 
     private void openCopperMenu(Player player, Block block) {
-        Inventory gui = Bukkit.createInventory(new CopperHolder(block), 36, "§6Медный нотный блок");
+        Inventory gui = Bukkit.createInventory(new CopperHolder(block), 36, "§6Медный нотного блок");
         String key = getBlockKey(block);
 
         if (sessionInventories.containsKey(key)) {
             gui.setContents(sessionInventories.get(key));
         } else {
-            ItemStack[] savedItems = loadFromPDC(block);
-            if (savedItems != null) {
-                gui.setContents(savedItems);
-                sessionInventories.put(key, savedItems);
-            } else {
-                ItemStack separator = new ItemStack(Material.BLACK_STAINED_GLASS_PANE);
-                ItemMeta sMeta = separator.getItemMeta();
-                if (sMeta != null) { sMeta.setDisplayName(" "); separator.setItemMeta(sMeta); }
+            ItemStack separator = new ItemStack(Material.BLACK_STAINED_GLASS_PANE);
+            ItemMeta sMeta = separator.getItemMeta();
+            if (sMeta != null) { sMeta.setDisplayName(" "); separator.setItemMeta(sMeta); }
 
-                for (int slot : blockedSlots) {
-                    gui.setItem(slot, separator);
-                }
+            for (int slot : blockedSlots) {
+                gui.setItem(slot, separator);
             }
         }
         player.openInventory(gui);
@@ -105,22 +102,30 @@ public class CopperBlockListener implements Listener {
 
             Bukkit.getScheduler().runTask(plugin, () -> {
                 ItemStack[] contents = event.getInventory().getContents();
-                sessionInventories.put(getBlockKey(holder.getBlock()), contents);
-                saveToPDC(holder.getBlock(), contents);
+                String key = getBlockKey(holder.getBlock());
+                sessionInventories.put(key, contents);
+                
+                // Моментально сохраняем в файл на диск
+                blockData.set("blocks." + key, contents);
+                try {
+                    blockData.save(configFile);
+                } catch (IOException ignored) {}
             });
         }
     }
-        @EventHandler
+    @EventHandler
     public void onBlockBreak(BlockBreakEvent event) {
         Block block = event.getBlock();
         if (block.getType() == Material.WAXED_CHISELED_COPPER) {
             String key = getBlockKey(block);
             ItemStack[] items = sessionInventories.remove(key);
             
-            if (items == null) {
-                items = loadFromPDC(block);
+            // Если блока нет в текущей сессии, берем его копию из файла базы данных
+            if (items == null && blockData.contains("blocks." + key)) {
+                items = ((java.util.List<ItemStack>) blockData.get("blocks." + key)).toArray(new ItemStack[0]);
             }
 
+            // Вываливаем лут на землю
             if (items != null) {
                 for (int i = 0; i < items.length; i++) {
                     if (items[i] != null && items[i].getType() != Material.AIR && !blockedSlots.contains(i)) {
@@ -128,6 +133,12 @@ public class CopperBlockListener implements Listener {
                     }
                 }
             }
+            
+            // Начисто удаляем блок из файла blocks.yml
+            blockData.set("blocks." + key, null);
+            try {
+                blockData.save(configFile);
+            } catch (IOException ignored) {}
         }
     }
 
@@ -160,10 +171,6 @@ public class CopperBlockListener implements Listener {
 
         String key = getBlockKey(block);
         ItemStack[] items = sessionInventories.get(key);
-        if (items == null) {
-            items = loadFromPDC(block);
-            if (items != null) sessionInventories.put(key, items);
-        }
 
         if (items == null) {
             block.removeMetadata("copper_playing", plugin);
@@ -171,8 +178,9 @@ public class CopperBlockListener implements Listener {
         }
 
         int itemsInTimeSlot = 0;
-        if (items[10] != null && items[10].getType() != Material.AIR) {
-            itemsInTimeSlot = items[10].getAmount();
+        ItemStack timeItem = items[10]; // Читаем слот №10
+        if (timeItem != null && timeItem.getType() != Material.AIR) {
+            itemsInTimeSlot = timeItem.getAmount();
         }
 
         int delayTicks = (itemsInTimeSlot > 0) ? (itemsInTimeSlot * 2) : 4;
@@ -180,8 +188,6 @@ public class CopperBlockListener implements Listener {
 
         final int finalDelay = delayTicks;
         final ItemStack[] finalItems = items;
-        
-        // Локация для появления частиц (чуть выше центра верхней грани блока)
         org.bukkit.Location particleLoc = block.getLocation().clone().add(0.5, 1.2, 0.5);
 
         new BukkitRunnable() {
@@ -200,31 +206,29 @@ public class CopperBlockListener implements Listener {
                 int lowSlot = 22 + step;      
                 int subSlot = 31 + step;      
 
-                // Переменная для проверки, прозвучал ли аккорд на этом шаге
                 boolean playedAny = false;
 
                 if (finalItems[highSlot] != null && finalItems[highSlot].getType() != Material.AIR) {
                     Sound sound = getInstrumentByMaterial(finalItems[highSlot].getType());
-                    block.getWorld().playSound(block.getLocation(), sound, 1.2f, 1.0f); // 12 кликов
+                    block.getWorld().playSound(block.getLocation(), sound, 1.2f, 1.0f);
                     playedAny = true;
                 } 
                 if (finalItems[midSlot] != null && finalItems[midSlot].getType() != Material.AIR) {
                     Sound sound = getInstrumentByMaterial(finalItems[midSlot].getType());
-                    block.getWorld().playSound(block.getLocation(), sound, 1.0f, 0.79f); // 08 кликов
+                    block.getWorld().playSound(block.getLocation(), sound, 1.0f, 0.79f);
                     playedAny = true;
                 } 
                 if (finalItems[lowSlot] != null && finalItems[lowSlot].getType() != Material.AIR) {
                     Sound sound = getInstrumentByMaterial(finalItems[lowSlot].getType());
-                    block.getWorld().playSound(block.getLocation(), sound, 0.8f, 0.63f); // 04 клика
+                    block.getWorld().playSound(block.getLocation(), sound, 0.8f, 0.63f);
                     playedAny = true;
                 }
                 if (finalItems[subSlot] != null && finalItems[subSlot].getType() != Material.AIR) {
                     Sound sound = getInstrumentByMaterial(finalItems[subSlot].getType());
-                    block.getWorld().playSound(block.getLocation(), sound, 0.9f, 0.5f); // 00 кликов
+                    block.getWorld().playSound(block.getLocation(), sound, 0.9f, 0.5f);
                     playedAny = true;
                 }
 
-                // Если сыграла хотя бы одна нота из столбца — спавним красивую ванильную нотку
                 if (playedAny) {
                     block.getWorld().spawnParticle(org.bukkit.Particle.NOTE, particleLoc, 1, 0.0, 0.0, 0.0, 0.0);
                 }
@@ -256,34 +260,16 @@ public class CopperBlockListener implements Listener {
         return Sound.BLOCK_NOTE_BLOCK_HARP;
     }
 
-    private void saveToPDC(Block block, ItemStack[] contents) {
-        if (!(block.getState() instanceof TileState)) return;
-        TileState state = (TileState) block.getState();
-        PersistentDataContainer pdc = state.getPersistentDataContainer();
-        try {
-            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-            BukkitObjectOutputStream dataOutput = new BukkitObjectOutputStream(outputStream);
-            dataOutput.writeInt(contents.length);
-            for (ItemStack content : contents) dataOutput.writeObject(content);
-            dataOutput.close();
-            pdc.set(dataKey, PersistentDataType.STRING, Base64.getEncoder().encodeToString(outputStream.toByteArray()));
-            state.update();
-        } catch (Exception ignored) {}
-    }
-
-    private ItemStack[] loadFromPDC(Block block) {
-        if (!(block.getState() instanceof TileState)) return null;
-        PersistentDataContainer pdc = ((TileState) block.getState()).getPersistentDataContainer();
-        if (!pdc.has(dataKey, PersistentDataType.STRING)) return null;
-        try {
-            String base64 = pdc.get(dataKey, PersistentDataType.STRING);
-            ByteArrayInputStream inputStream = new ByteArrayInputStream(Base64.getDecoder().decode(base64));
-            BukkitObjectInputStream dataInput = new BukkitObjectInputStream(inputStream);
-            ItemStack[] contents = new ItemStack[dataInput.readInt()];
-            for (int i = 0; i < contents.length; i++) contents[i] = (ItemStack) dataInput.readObject();
-            dataInput.close();
-            return contents;
-        } catch (Exception e) { return null; }
+    // Технический метод: выгружает сохраненные блоки из файла blocks.yml в оперативку при старте сервера
+    @SuppressWarnings("unchecked")
+    private void loadAllBlocksFromFile() {
+        if (!blockData.contains("blocks")) return;
+        for (String key : blockData.getConfigurationSection("blocks").getKeys(false)) {
+            java.util.List<ItemStack> list = (java.util.List<ItemStack>) blockData.get("blocks." + key);
+            if (list != null) {
+                sessionInventories.put(key, list.toArray(new ItemStack[0]));
+            }
+        }
     }
 
     private static class CopperHolder implements org.bukkit.inventory.InventoryHolder {
